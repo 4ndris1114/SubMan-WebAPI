@@ -27,8 +27,14 @@ public class SubscriptionController: Controller {
     }
 
     [HttpPut("{id}")]
-    public async  Task<IActionResult> Update(string id, [FromBody] Subscription subscription) {}  
+    public async  Task<IActionResult> Update(string id, [FromBody] Subscription subscription) {
+        await _mongoDBService.UpdateAsync(id, subscription);
+        return NoContent();
+    }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Delete(string id) {}
+    public async Task<IActionResult> Delete(string id) {
+        await _mongoDBService.DeleteAsync(id);
+        return NoContent();
+    }
 }

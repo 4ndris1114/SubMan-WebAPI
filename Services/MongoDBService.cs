@@ -25,7 +25,21 @@ public class MongoDBService {
 
     public async Task UpdateAsync(string id, Subscription subscription) {
         FilterDefinition<Subscription> filter = Builders<Subscription>.Filter.Eq("Id", id);
-        UpdateDefinition<Subscription> update = Builders<Subscription>.Update.AddToSet
+        UpdateDefinition<Subscription> update = Builders<Subscription>.Update
+            .Set("Name", subscription.Name)
+            .Set("Comment", subscription.Comment)
+            .Set("Price", subscription.Price)
+            .Set("Currency", subscription.Currency)
+            .Set("Interval", subscription.Interval);
+        
+        await _subscriptionCollection.UpdateOneAsync(filter, update);
+        return;
+    }
+
+    public async Task DeleteAsync(string id) {
+        FilterDefinition<Subscription> filter = Builders<Subscription>.Filter.Eq("Id", id);
+        await _subscriptionCollection.DeleteOneAsync(filter);
+        return;
     }
 
 }
