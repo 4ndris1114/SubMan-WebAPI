@@ -13,5 +13,19 @@ public class MongoDBService {
         IMongoDatabase database = client.GetDatabase(mongoDBSettings.Value.DatabaseName);
         _subscriptionCollection = database.GetCollection<Subscription>(mongoDBSettings.Value.CollectionName);
     }
-    
+
+    public async Task CreateAsync(Subscription subscription) {
+        await _subscriptionCollection.InsertOneAsync(subscription);
+        return;
+    }
+
+    public async Task<List<Subscription>> GetAsync() {
+        return await _subscriptionCollection.Find(new BsonDocument()).ToListAsync();
+    }
+
+    public async Task UpdateAsync(string id, Subscription subscription) {
+        FilterDefinition<Subscription> filter = Builders<Subscription>.Filter.Eq("Id", id);
+        UpdateDefinition<Subscription> update = Builders<Subscription>.Update.AddToSet
+    }
+
 }

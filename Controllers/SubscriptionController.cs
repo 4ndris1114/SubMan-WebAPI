@@ -16,10 +16,15 @@ public class SubscriptionController: Controller {
     }
 
     [HttpGet]
-    public async Task<List<Subscription>> Get() {}
+    public async Task<List<Subscription>> Get() {
+        return await _mongoDBService.GetAsync();
+    }
 
     [HttpPost]
-    public async Task<IActionResult> Post([FromBody] Subscription subscription) {}
+    public async Task<IActionResult> Post([FromBody] Subscription subscription) {
+        await _mongoDBService.CreateAsync(subscription);
+        return CreatedAtAction(nameof(Get), new { id = subscription.Id }, subscription);
+    }
 
     [HttpPut("{id}")]
     public async  Task<IActionResult> Update(string id, [FromBody] Subscription subscription) {}  
