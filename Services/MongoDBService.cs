@@ -9,7 +9,7 @@ public class MongoDBService {
     private readonly IMongoCollection<Subscription> _subscriptionCollection;
 
     public MongoDBService(IOptions<MongoDBSettings> mongoDBSettings) {
-        Console.WriteLine($"Connecting to MongoDB at: {mongoDBSettings.Value.ConnectionURI}");
+        Console.WriteLine($"Connecting to MongoDB)");
         MongoClient client = new MongoClient(mongoDBSettings.Value.ConnectionURI);
         IMongoDatabase database = client.GetDatabase(mongoDBSettings.Value.DatabaseName);
         _subscriptionCollection = database.GetCollection<Subscription>(mongoDBSettings.Value.CollectionName);
@@ -27,11 +27,11 @@ public class MongoDBService {
     public async Task UpdateAsync(string id, Subscription subscription) {
         FilterDefinition<Subscription> filter = Builders<Subscription>.Filter.Eq("Id", id);
         UpdateDefinition<Subscription> update = Builders<Subscription>.Update
-            .Set("Name", subscription.Name)
-            .Set("Comment", subscription.Comment)
-            .Set("Price", subscription.Price)
-            .Set("Currency", subscription.Currency)
-            .Set("Interval", subscription.Interval);
+            .Set("name", subscription.Name)
+            .Set("comment", subscription.Comment)
+            .Set("price", subscription.Price)
+            .Set("currency", subscription.Currency)
+            .Set("interval", subscription.Interval);
         
         await _subscriptionCollection.UpdateOneAsync(filter, update);
         return;

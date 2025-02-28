@@ -17,7 +17,6 @@ public class SubscriptionController: ControllerBase {
 
     [HttpGet]
     public async Task<List<Subscription>> Get() {
-        Console.WriteLine("🔹 GET request received at /api/subscription");
         return await _mongoDBService.GetAsync();
     }
 
