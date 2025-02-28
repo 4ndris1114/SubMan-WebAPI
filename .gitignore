@@ -10,6 +10,8 @@
 .env
 .env.development
 .env.production
+
+#VisualStudioCode
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -22,6 +24,10 @@
 
 #Built Visual Studio Code Extensions
 *.vsix
+
+#VisualStudioCode Patch
+.history
+.ionide
 
 # User-specific files
 *.rsuser
