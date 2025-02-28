@@ -15,5 +15,15 @@ public class SubscriptionController: Controller {
         _mongoDBService = mongoDBService;
     }
 
-    
+    [HttpGet]
+    public async Task<List<Subscription>> Get() {}
+
+    [HttpPost]
+    public async Task<IActionResult> Post([FromBody] Subscription subscription) {}
+
+    [HttpPut("{id}")]
+    public async  Task<IActionResult> Update(string id, [FromBody] Subscription subscription) {}  
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(string id) {}
 }
