@@ -127,6 +127,88 @@ public class SubscriptionControllerTests : IClassFixture<CustomWebApplicationFac
         // Cleanup the user after the test
         await CleanupUserAsync(token);
     }
+    
+    [Fact]
+    public async Task UpdateSubscription_ReturnsUpdatedSubscription()
+    {
+        // Arrange
+        var token = await RegisterAndLoginAsync();
+        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+        // Create a new subscription
+        var newSub = new Subscription
+        {
+            UserId = ExtractUserIdFromToken(token),
+            Name = "Test Netflix",
+            Description = "Monthly Test Netflix subscription",
+            Price = 11.99d,
+            Currency = "DKK",
+            StartDate = DateTime.UtcNow.AddMonths(1),
+            Interval = 30,
+        };
+        var createResponse = await _client.PostAsJsonAsync("/api/subscription", newSub);
+        createResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.Created);
+        var createdSub = await createResponse.Content.ReadFromJsonAsync<Subscription>();
+
+        // Ensure the subscription was created
+        createdSub.Should().NotBeNull();
+        createdSub!.Name.Should().Be(newSub.Name);
+        createdSub.UserId.Should().Be(newSub.UserId);
+
+        // Act: Update the subscription
+        createdSub.Name = "Updated Netflix";
+        createdSub.Description = "Updated subscription description";
+        var updateResponse = await _client.PutAsJsonAsync($"/api/subscription/{createdSub.Id}", createdSub);
+
+        // Assert: Verify the subscription was updated correctly
+        updateResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var updatedSub = await updateResponse.Content.ReadFromJsonAsync<Subscription>();
+        updatedSub.Should().NotBeNull();
+        updatedSub!.Name.Should().Be("Updated Netflix");
+        updatedSub.Description.Should().Be("Updated subscription description");
+
+        // Cleanup the user after the test
+        await CleanupUserAsync(token);
+    }
+
+    [Fact]
+    public async Task DeleteSubscription_ReturnsNoContent() {
+        // Arrange
+        var token = await RegisterAndLoginAsync();
+        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+        // Act - Create a new subscription
+        var newSub = new Subscription {
+            UserId = ExtractUserIdFromToken(token),
+            Name = "Test Delete Netflix",
+            Description = "Monthly Test Delete Netflix subscription",
+            Price = 11.99d,
+            Currency = "DKK",
+            StartDate = DateTime.UtcNow.AddMonths(1),
+            Interval = 30,
+        };
+        var createResponse = await _client.PostAsJsonAsync("/api/subscription", newSub);
+
+        // Assert - Ensure subscription creation was successful
+        createResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.Created);
+        var createdSubscription = await createResponse.Content.ReadFromJsonAsync<Subscription>();
+        createdSubscription.Should().NotBeNull();
+
+        // Act - Delete the created subscription
+        var deleteResponse = await _client.DeleteAsync($"/api/subscription/{createdSubscription.Id}");
+
+        // Assert - Ensure the delete response returns NoContent (status code 204)
+        deleteResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.NoContent);
+
+        // Act - Try to get the deleted subscription to ensure it's removed
+        var getResponse = await _client.GetAsync($"/api/subscription/{createdSubscription.Id}");
+
+        // Assert - Ensure that getting the subscription after deletion returns NotFound (status code 404)
+        getResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.NotFound);
+
+        // Cleanup the user after the test
+        await CleanupUserAsync(token);
+    }
 
     private async Task CleanupUserAsync(string token) {
         var userId = ExtractUserIdFromToken(token);
@@ -141,7 +223,6 @@ public class SubscriptionControllerTests : IClassFixture<CustomWebApplicationFac
             Console.WriteLine($"Failed to delete user: {response.StatusCode}");
         }
     }
-
 
     private string ExtractUserIdFromToken(string token) {
         var handler = new JwtSecurityTokenHandler();
