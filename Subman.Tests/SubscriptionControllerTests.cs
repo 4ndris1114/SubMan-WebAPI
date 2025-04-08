@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Newtonsoft.Json;
+using System.IdentityModel.Tokens.Jwt;
 using Subman.Models;
 using Xunit;
 
@@ -48,7 +49,7 @@ public class SubscriptionControllerTests : IClassFixture<CustomWebApplicationFac
         _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
 
         var newSub = new Subscription {
-            UserId = "67ee48ee6e4ea3dcd7a71fd7", //this is a dummy Id
+            UserId = ExtractUserIdFromToken(token),
             Name = "Test Netflix",
             Description = "Monthly Test Netflix subscription",
             Price = 12.99d,
@@ -66,5 +67,30 @@ public class SubscriptionControllerTests : IClassFixture<CustomWebApplicationFac
         returnedSub.Should().NotBeNull();
         returnedSub!.Name.Should().Be(newSub.Name);
         returnedSub.UserId.Should().Be(newSub.UserId);
+
+        // Cleanup the user after the test
+        await CleanupUserAsync(token);
+    }
+
+    private async Task CleanupUserAsync(string token) {
+        var userId = ExtractUserIdFromToken(token);
+        if (userId == null)
+            throw new Exception("User ID could not be extracted from the token.");
+
+        var response = await _client.DeleteAsync($"/api/user/{userId}");
+
+        if (response.IsSuccessStatusCode) {
+            Console.WriteLine("User successfully deleted.");
+        } else {
+            Console.WriteLine($"Failed to delete user: {response.StatusCode}");
+        }
+    }
+
+
+    private string ExtractUserIdFromToken(string token) {
+        var handler = new JwtSecurityTokenHandler();
+        var jsonToken = handler.ReadToken(token) as JwtSecurityToken;
+        var userId = jsonToken?.Claims.FirstOrDefault(c => c.Type == "userId")?.Value;
+        return userId;
     }
 }
