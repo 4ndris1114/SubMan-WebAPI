@@ -8,6 +8,7 @@ using MongoDB.Bson;
 
 namespace Subman.Controllers;
 
+[Authorize]
 [Route("api/[controller]")]
 [ApiController]
 public class SubscriptionController : BaseController<Subscription> {

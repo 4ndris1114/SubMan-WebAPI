@@ -6,16 +6,13 @@ using DotNetEnv;
 
 namespace Subman.Tests;
 
-public class CustomWebApplicationFactory<TProgram> : WebApplicationFactory<TProgram> where TProgram : class
-{
-    protected override IHost CreateHost(IHostBuilder builder)
-    {
+public class CustomWebApplicationFactory<TProgram> : WebApplicationFactory<TProgram> where TProgram : class {
+    protected override IHost CreateHost(IHostBuilder builder) {
         // Load environment variables (including connection string)
         Env.Load("../.env");
 
         // Override DI setup
-        builder.ConfigureServices(services =>
-        {
+        builder.ConfigureServices(services => {
             // Remove the existing MongoDbContext registration
             var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(MongoDbContext));
             if (descriptor is not null)
