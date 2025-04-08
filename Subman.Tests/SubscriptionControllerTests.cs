@@ -127,6 +127,45 @@ public class SubscriptionControllerTests : IClassFixture<CustomWebApplicationFac
         // Cleanup the user after the test
         await CleanupUserAsync(token);
     }
+
+    [Fact]
+    public async Task GetSubscriptionByUserId_ReturnsSubscription() {
+        // Arrange
+        var token = await RegisterAndLoginAsync();
+        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+        // Act & Assert
+        var newSub = new Subscription {
+            UserId = ExtractUserIdFromToken(token),
+            Name = "Test Get Netflix",
+            Description = "Monthly Test Get Netflix subscription",
+            Price = 11.99d,
+            Currency = "DKK",
+            StartDate = DateTime.UtcNow.AddMonths(1),
+            Interval = 30,
+        };
+        var createResponse = await _client.PostAsJsonAsync("/api/subscription", newSub);
+
+        // Assert
+        createResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.Created);
+        var returnedSub = await createResponse.Content.ReadFromJsonAsync<Subscription>();
+        returnedSub.Should().NotBeNull();
+        returnedSub!.Name.Should().Be(newSub.Name);
+        returnedSub.UserId.Should().Be(newSub.UserId);
+        
+
+        var response = await _client.GetAsync("/api/subscription/user/" + newSub.UserId);
+
+        // Assert
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var subscriptions = await response.Content.ReadFromJsonAsync<List<Subscription>>();
+        subscriptions.Should().NotBeNull();
+        subscriptions.Should().NotBeEmpty();
+        subscriptions.Should().Contain(subscription => subscription.UserId == newSub.UserId);
+
+        // Cleanup the user after the test
+        await CleanupUserAsync(token);
+    }
     
     [Fact]
     public async Task UpdateSubscription_ReturnsUpdatedSubscription()
