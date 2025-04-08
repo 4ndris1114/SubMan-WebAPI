@@ -1,272 +1,205 @@
 using System.Net.Http.Json;
-using System.Threading.Tasks;
+using System.IdentityModel.Tokens.Jwt;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Newtonsoft.Json;
-using System.IdentityModel.Tokens.Jwt;
 using Subman.Models;
 using Xunit;
 
 namespace Subman.Tests;
 
-public class SubscriptionControllerTests : IClassFixture<CustomWebApplicationFactory<Program>> {
+public class SubscriptionControllerTests : IClassFixture<CustomWebApplicationFactory<Program>>, IAsyncLifetime {
     private readonly HttpClient _client;
+    private string _token = string.Empty;
+    private string _userId = string.Empty;
+    private readonly List<string> _createdSubscriptionIds = new();
 
     public SubscriptionControllerTests(CustomWebApplicationFactory<Program> factory) {
         _client = factory.CreateClient(); // Creates in-memory test server
     }
 
+    // This method is called before each test
+    public async Task InitializeAsync() {
+        _token = await RegisterAndLoginAsync();
+        _userId = ExtractUserIdFromToken(_token);
+        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {_token}");
+    }
+
+    // This method is called after each test
+    public async Task DisposeAsync() {
+        await CleanupSubscriptionsAsync();
+        await CleanupUserAsync(_userId);
+    }
+
+    // Method to register and login a new user, so the tests can use the token
     private async Task<string> RegisterAndLoginAsync() {
-        // 1. Register a new user
-        var registerContent = new UserRegister {
+        // Register
+        var register = new UserRegister {
             Username = "testuser",
             Email = "testuser@example.com",
             Password = "Test123!"
         };
+        var regResponse = await _client.PostAsJsonAsync("api/auth/register", register);
+        regResponse.EnsureSuccessStatusCode();
 
-        var registerResponse = await _client.PostAsJsonAsync("api/auth/register", registerContent);
-        registerResponse.EnsureSuccessStatusCode();
-
-        // 2. Login to get the JWT token
-        var loginContent = new UserLogin {
+        // Login
+        var login = new UserLogin {
             Email = "testuser@example.com",
             Password = "Test123!"
         };
-
-        var loginResponse = await _client.PostAsJsonAsync("api/auth/login", loginContent);
+        var loginResponse = await _client.PostAsJsonAsync("api/auth/login", login);
         loginResponse.EnsureSuccessStatusCode();
 
-        var loginResponseContent = await loginResponse.Content.ReadAsStringAsync();
-        
-        // Return the token which is the login response
-        return loginResponseContent;
+        return await loginResponse.Content.ReadAsStringAsync();
     }
 
-    [Fact]
-    public async Task CreateSubscription_ReturnsCreatedSubscription() {
-        // Arrange
-        var token = await RegisterAndLoginAsync();
-        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+    // Method to extract the user ID from the token
+    private string ExtractUserIdFromToken(string token) {
+        var handler = new JwtSecurityTokenHandler();
+        var jwt = handler.ReadToken(token) as JwtSecurityToken;
+        return jwt?.Claims.FirstOrDefault(c => c.Type == "userId")?.Value ?? throw new Exception("User ID missing in token");
+    }
 
-        var newSub = new Subscription {
-            UserId = ExtractUserIdFromToken(token),
-            Name = "Test Netflix",
-            Description = "Monthly Test Netflix subscription",
-            Price = 12.99d,
-            Currency = "USD",
-            StartDate = DateTime.UtcNow.AddMonths(1),
-            Interval = 31,
-        };
+    // Method to clean up the user after the test (email is unique, so the user needs to be deleted each time)
+    private async Task CleanupUserAsync(string userId) {
+        var response = await _client.DeleteAsync($"/api/user/{userId}");
+        if (!response.IsSuccessStatusCode) {
+            Console.WriteLine($"Failed to delete user: {response.StatusCode}");
+        }
+    }
+
+    // Method to clean up the subscriptions after the test
+    private async Task CleanupSubscriptionsAsync() {
+        foreach (var id in _createdSubscriptionIds) {
+            await _client.DeleteAsync($"/api/subscription/{id}");
+        }
+    }
+
+    // Method to generate a subscription
+    private Subscription GenerateSubscription(string name = "Test Subscription") => new() {
+        UserId = _userId,
+        Name = name,
+        Description = "Test description",
+        Price = 9.99,
+        Currency = "USD",
+        StartDate = DateTime.UtcNow,
+        Interval = 30
+    };
+
+    [Fact]
+    public async Task CreateSubscription_ShouldReturnCreated() {
+        // Arrange
+        var sub = GenerateSubscription("Create Test");
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/subscription", newSub);
+        var response = await _client.PostAsJsonAsync("/api/subscription", sub);
 
         // Assert
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.Created);
-        var returnedSub = await response.Content.ReadFromJsonAsync<Subscription>();
-        returnedSub.Should().NotBeNull();
-        returnedSub!.Name.Should().Be(newSub.Name);
-        returnedSub.UserId.Should().Be(newSub.UserId);
+        var created = await response.Content.ReadFromJsonAsync<Subscription>();
+        created.Should().NotBeNull();
+        created!.Name.Should().Be(sub.Name);
+        created.UserId.Should().Be(sub.UserId);
 
-        // Cleanup the user after the test
-        await CleanupUserAsync(token);
+        // Add the created subscription ID to the list - so it can be removed later
+        _createdSubscriptionIds.Add(created.Id!);
     }
 
     [Fact]
-    public async Task GetAllSubscriptions_ReturnsListOfSubscriptions() {
+    public async Task GetAllSubscriptions_ShouldReturnList() {
         // Arrange
-        var token = await RegisterAndLoginAsync();
-        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+        var sub = GenerateSubscription("GetAll Test");
+        var create = await _client.PostAsJsonAsync("/api/subscription", sub);
+        var created = await create.Content.ReadFromJsonAsync<Subscription>();
 
         // Act
         var response = await _client.GetAsync("/api/subscription");
 
         // Assert
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
-        var subscriptions = await response.Content.ReadFromJsonAsync<List<Subscription>>();
-        subscriptions.Should().NotBeNull();
-        subscriptions.Should().NotBeEmpty();
+        var list = await response.Content.ReadFromJsonAsync<List<Subscription>>();
+        list.Should().NotBeNull();
+        list.Should().NotBeEmpty();
+        list.Should().Contain(x => x.Id == created!.Id);
 
-        // Cleanup the user after the test
-        await CleanupUserAsync(token);
+        // Add the created subscription ID to the list - so it can be removed later
+        _createdSubscriptionIds.Add(created.Id!);
     }
 
     [Fact]
-    public async Task GetSubscriptionById_ReturnsSubscription() {
+    public async Task GetSubscriptionById_ShouldReturnCorrectSubscription() {
         // Arrange
-        var token = await RegisterAndLoginAsync();
-        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+        var sub = GenerateSubscription("GetById Test");
+        var create = await _client.PostAsJsonAsync("/api/subscription", sub);
+        var created = await create.Content.ReadFromJsonAsync<Subscription>();
 
-        // Act & Assert
-        var newSub = new Subscription {
-            UserId = ExtractUserIdFromToken(token),
-            Name = "Test Get Netflix",
-            Description = "Monthly Test Get Netflix subscription",
-            Price = 11.99d,
-            Currency = "DKK",
-            StartDate = DateTime.UtcNow.AddMonths(1),
-            Interval = 30,
-        };
-        var createResponse = await _client.PostAsJsonAsync("/api/subscription", newSub);
-
-        // Assert
-        createResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.Created);
-        var returnedSub = await createResponse.Content.ReadFromJsonAsync<Subscription>();
-        returnedSub.Should().NotBeNull();
-        returnedSub!.Name.Should().Be(newSub.Name);
-        returnedSub.UserId.Should().Be(newSub.UserId);
-        
-
-        var response = await _client.GetAsync("/api/subscription/" + newSub.Id);
+        // Act
+        var response = await _client.GetAsync($"/api/subscription/{created!.Id}");
 
         // Assert
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
-        var subscription = await response.Content.ReadFromJsonAsync<List<Subscription>>();
-        subscription.Should().NotBeNull();
+        var result = await response.Content.ReadFromJsonAsync<Subscription>();
+        result.Should().NotBeNull();
 
-        // Cleanup the user after the test
-        await CleanupUserAsync(token);
+        // Add the created subscription ID to the list - so it can be removed later
+        _createdSubscriptionIds.Add(created.Id!);
     }
 
     [Fact]
-    public async Task GetSubscriptionByUserId_ReturnsSubscription() {
+    public async Task GetSubscriptionByUserId_ShouldReturnList() {
         // Arrange
-        var token = await RegisterAndLoginAsync();
-        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+        var sub = GenerateSubscription("GetByUserId Test");
+        var create = await _client.PostAsJsonAsync("/api/subscription", sub);
+        var created = await create.Content.ReadFromJsonAsync<Subscription>();
 
-        // Act & Assert
-        var newSub = new Subscription {
-            UserId = ExtractUserIdFromToken(token),
-            Name = "Test Get Netflix",
-            Description = "Monthly Test Get Netflix subscription",
-            Price = 11.99d,
-            Currency = "DKK",
-            StartDate = DateTime.UtcNow.AddMonths(1),
-            Interval = 30,
-        };
-        var createResponse = await _client.PostAsJsonAsync("/api/subscription", newSub);
-
-        // Assert
-        createResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.Created);
-        var returnedSub = await createResponse.Content.ReadFromJsonAsync<Subscription>();
-        returnedSub.Should().NotBeNull();
-        returnedSub!.Name.Should().Be(newSub.Name);
-        returnedSub.UserId.Should().Be(newSub.UserId);
-        
-
-        var response = await _client.GetAsync("/api/subscription/user/" + newSub.UserId);
+        // Act
+        var response = await _client.GetAsync($"/api/subscription/user/{created!.UserId}");
 
         // Assert
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
-        var subscriptions = await response.Content.ReadFromJsonAsync<List<Subscription>>();
-        subscriptions.Should().NotBeNull();
-        subscriptions.Should().NotBeEmpty();
-        subscriptions.Should().Contain(subscription => subscription.UserId == newSub.UserId);
-
-        // Cleanup the user after the test
-        await CleanupUserAsync(token);
-    }
-    
-    [Fact]
-    public async Task UpdateSubscription_ReturnsUpdatedSubscription()
-    {
-        // Arrange
-        var token = await RegisterAndLoginAsync();
-        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
-
-        // Create a new subscription
-        var newSub = new Subscription
-        {
-            UserId = ExtractUserIdFromToken(token),
-            Name = "Test Netflix",
-            Description = "Monthly Test Netflix subscription",
-            Price = 11.99d,
-            Currency = "DKK",
-            StartDate = DateTime.UtcNow.AddMonths(1),
-            Interval = 30,
-        };
-        var createResponse = await _client.PostAsJsonAsync("/api/subscription", newSub);
-        createResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.Created);
-        var createdSub = await createResponse.Content.ReadFromJsonAsync<Subscription>();
-
-        // Ensure the subscription was created
-        createdSub.Should().NotBeNull();
-        createdSub!.Name.Should().Be(newSub.Name);
-        createdSub.UserId.Should().Be(newSub.UserId);
-
-        // Act: Update the subscription
-        createdSub.Name = "Updated Netflix";
-        createdSub.Description = "Updated subscription description";
-        var updateResponse = await _client.PutAsJsonAsync($"/api/subscription/{createdSub.Id}", createdSub);
-
-        // Assert: Verify the subscription was updated correctly
-        updateResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
-        var updatedSub = await updateResponse.Content.ReadFromJsonAsync<Subscription>();
-        updatedSub.Should().NotBeNull();
-        updatedSub!.Name.Should().Be("Updated Netflix");
-        updatedSub.Description.Should().Be("Updated subscription description");
-
-        // Cleanup the user after the test
-        await CleanupUserAsync(token);
+        var list = await response.Content.ReadFromJsonAsync<List<Subscription>>();
+        list.Should().NotBeNull();
+        list.Should().NotBeEmpty();
+        list.Should().Contain(x => x.Id == created!.Id);
     }
 
     [Fact]
-    public async Task DeleteSubscription_ReturnsNoContent() {
+    public async Task UpdateSubscription_ShouldModifyFields() {
         // Arrange
-        var token = await RegisterAndLoginAsync();
-        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+        var sub = GenerateSubscription("Update Test");
+        var create = await _client.PostAsJsonAsync("/api/subscription", sub);
+        var created = await create.Content.ReadFromJsonAsync<Subscription>();
 
-        // Act - Create a new subscription
-        var newSub = new Subscription {
-            UserId = ExtractUserIdFromToken(token),
-            Name = "Test Delete Netflix",
-            Description = "Monthly Test Delete Netflix subscription",
-            Price = 11.99d,
-            Currency = "DKK",
-            StartDate = DateTime.UtcNow.AddMonths(1),
-            Interval = 30,
-        };
-        var createResponse = await _client.PostAsJsonAsync("/api/subscription", newSub);
+        // Act
+        created!.Name = "Updated Name";
+        created.Description = "Updated Description";
 
-        // Assert - Ensure subscription creation was successful
-        createResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.Created);
-        var createdSubscription = await createResponse.Content.ReadFromJsonAsync<Subscription>();
-        createdSubscription.Should().NotBeNull();
+        var update = await _client.PutAsJsonAsync($"/api/subscription/{created.Id}", created);
 
-        // Act - Delete the created subscription
-        var deleteResponse = await _client.DeleteAsync($"/api/subscription/{createdSubscription.Id}");
+        // Assert
+        update.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var updated = await update.Content.ReadFromJsonAsync<Subscription>();
+        updated!.Name.Should().Be("Updated Name");
+        updated.Description.Should().Be("Updated Description");
 
-        // Assert - Ensure the delete response returns NoContent (status code 204)
-        deleteResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.NoContent);
-
-        // Act - Try to get the deleted subscription to ensure it's removed
-        var getResponse = await _client.GetAsync($"/api/subscription/{createdSubscription.Id}");
-
-        // Assert - Ensure that getting the subscription after deletion returns NotFound (status code 404)
-        getResponse.StatusCode.Should().Be(System.Net.HttpStatusCode.NotFound);
-
-        // Cleanup the user after the test
-        await CleanupUserAsync(token);
+        // Add the created subscription ID to the list - so it can be removed later
+        _createdSubscriptionIds.Add(created.Id!);
     }
 
-    private async Task CleanupUserAsync(string token) {
-        var userId = ExtractUserIdFromToken(token);
-        if (userId == null)
-            throw new Exception("User ID could not be extracted from the token.");
+    [Fact]
+    public async Task DeleteSubscription_ShouldReturnNoContent_AndRemoveIt() {
+        // Arrange
+        var sub = GenerateSubscription("Delete Test");
+        var create = await _client.PostAsJsonAsync("/api/subscription", sub);
+        var created = await create.Content.ReadFromJsonAsync<Subscription>();
 
-        var response = await _client.DeleteAsync($"/api/user/{userId}");
+        // Act
+        var delete = await _client.DeleteAsync($"/api/subscription/{created!.Id}");
 
-        if (response.IsSuccessStatusCode) {
-            Console.WriteLine("User successfully deleted.");
-        } else {
-            Console.WriteLine($"Failed to delete user: {response.StatusCode}");
-        }
-    }
+        // Assert
+        delete.StatusCode.Should().Be(System.Net.HttpStatusCode.NoContent);
 
-    private string ExtractUserIdFromToken(string token) {
-        var handler = new JwtSecurityTokenHandler();
-        var jsonToken = handler.ReadToken(token) as JwtSecurityToken;
-        var userId = jsonToken?.Claims.FirstOrDefault(c => c.Type == "userId")?.Value;
-        return userId;
+        var get = await _client.GetAsync($"/api/subscription/{created.Id}");
+        get.StatusCode.Should().Be(System.Net.HttpStatusCode.NotFound);
     }
 }
